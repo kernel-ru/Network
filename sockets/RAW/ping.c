@@ -1,6 +1,9 @@
 /*
  * ping.c
  * written by Ivan Ryabtsov ivriabtsov at gmail dot com
+ * compile with: gcc -Wall -Wextra -g -O2 -DDEBUG=2 ping.c for maximum debug
+ * gcc -Wall -Wextra -g -O2 -DDEBUG=1 ping.c for reduce debug
+ * gcc -Wall -Wextra -g -O2  ping.c without debug
  */
 #include <unistd.h>
 #include <stdio.h>
@@ -25,6 +28,7 @@ struct stuff {
 int ping(const char *name);
 int routines(struct stuff *conn);
 unsigned short in_cksum(unsigned short *addr, size_t len);
+void pr_bytes(const char *str, int size);
 
 int main(int argc, char *argv[])
 {
@@ -81,6 +85,7 @@ struct s_frame {
 	struct icmphdr _icmphdr;
 	char payload[LOAD_SIZ];
 };
+
 int routines(struct stuff *conn)
 {
 	struct s_frame *send_frame;
@@ -131,84 +136,133 @@ int routines(struct stuff *conn)
 		/* comparison src and dest addresses */
 		if ( *(unsigned int *)conn->h_ent->h_addr_list[0] ==
 				((struct iphdr *)recv_frame)->saddr) {
+#if DEBUG > 0
 			printf("package with a valid addresses\n");
+#else
+			;
+#endif
 		} else {
+#if DEBUG > 0
 			printf("!!!!!src and dest addresses is not walid\n");
+#endif
 			goto cont;
 		}
-		/*
-		printf("s 0x%X, d 0x%X\n", ((struct iphdr *)recv_frame)->saddr,
-				((struct iphdr *)recv_frame)->daddr);
-				*/
 		iphdrlen = ((struct iphdr *)recv_frame)->ihl * sizeof(int);
 		/* check chksum in ip header */
 		cksum = ((struct iphdr *)recv_frame)->check;
 		((struct iphdr *)recv_frame)->check = 0;
 		if (cksum == in_cksum((unsigned short *)recv_frame, iphdrlen)){
+#if DEBUG > 0
 			printf("ip cksum is equal %hu\n", cksum);
+#else
+			;
+#endif
 		} else {
+#if DEBUG > 0
 			printf("!!!!!ip cksum is not equal %hu\n", cksum);
+#endif
 			goto cont;
 		}
 		/* compute len of icmp header */
 		icmplen = ntohs(((struct iphdr *)recv_frame)->tot_len) -
 			iphdrlen;
-		/*printf("iphdr len: %d, icmp len: %d, all frame len: %hu\n",
-				iphdrlen, icmplen,
-				ntohs(((struct iphdr *)recv_frame)->tot_len));
-		printf("%p, %p\n", recv_frame, recv_frame + iphdrlen);
-		printf("%p, %p\n", recv_frame, (struct icmphdr *)(recv_frame +
-				iphdrlen));
-		printf("%d\n", ((struct icmphdr *)(recv_frame + iphdrlen))->
-				checksum);*/
-		/* check icmp id and sequence number */
 		if (((struct icmphdr *)(recv_frame + iphdrlen))->un.echo.id ==
 				send_frame->_icmphdr.un.echo.id) {
+#if DEBUG > 0
 			printf("recv and send id is equal %hu\n",
 					ntohs(send_frame->_icmphdr.un.echo.id));
+#else
+			;
+#endif
 		} else {
+#if DEBUG > 0
 			printf("!!!!!id is not equal %hu\n",
 					ntohs(send_frame->_icmphdr.un.echo.id));
+#endif
 			goto cont;
 		}
 		if (((struct icmphdr *)(recv_frame + iphdrlen))->
 				un.echo.sequence ==
 				send_frame->_icmphdr.un.echo.sequence) {
+#if DEBUG > 0
 			printf("recv end send seq is equal %hu\n",
 					ntohs(send_frame->
 						_icmphdr.un.echo.sequence));
+#else
+			;
+#endif
 		} else {
+#if DEBUG > 0
 			printf("!!!!sequence is not equal l %hu, r %hu\n",
 					ntohs(send_frame->
 						_icmphdr.un.echo.sequence),
 					htons(((struct icmphdr *)
 							(recv_frame + iphdrlen))
 						->un.echo.sequence));
+#else
+			;
+#endif
 		//	goto cont;
 		}
 
 		/* check chksum of icmp header */
 		cksum = ((struct icmphdr *)(recv_frame + iphdrlen))->
 			checksum;
-		/*printf("recv chsum: %hu\n", cksum);*/
 		((struct icmphdr *)(recv_frame + iphdrlen))->checksum = 0;
 		if (cksum == in_cksum((unsigned short *)
 					(recv_frame + iphdrlen), icmplen)) {
-			printf("icmp cksum is equal %d\n", cksum);
 			succ_cnt++;
-			printf("%d\n", succ_cnt);
+#if DEBUG > 0
+			printf("icmp cksum is equal %d\n", cksum);
+			printf("count of success ping: %d\n", succ_cnt);
+#endif
 		} else {
+#if DEBUG > 0
 			printf("!!!!!icmp checksum is not walid %hu\n", cksum);
+#endif
 			goto cont;
 		}
 cont:	
 		seqtmp = ntohs(send_frame->_icmphdr.un.echo.sequence);
 		seqtmp++;
 		send_frame->_icmphdr.un.echo.sequence = htons(seqtmp);
+#if DEBUG > 0
+#if DEBUG == 2
+		pr_bytes(recv_frame, ntohs(((struct iphdr *)recv_frame)->
+					tot_len));
+#endif
 		printf("next sequence is %hu\n=============\n", seqtmp);
+#endif
 	}
 	return succ_cnt;
 }
+
+void pr_bytes(const char *str, int size)
+{
+	unsigned char hex[] = {'0','1','2','3','4','5',
+		'6','7','8','9','a','b','c','d','e','f'};
+	char out[3];
+	out[2] = '\0';
+	unsigned char tmp;
+	int i, c;
+	for (i = 0; i < size; i++) {
+		tmp = str[i] & 0xff;
+		for (c = 1; c >= 0; c--) {
+			out[c] = hex[tmp % 16];
+			tmp /= 16;
+		}
+		if (i % 8 == 0 && i != 0) {
+			if (i % 16 == 0) {
+				printf("\n");
+			} else {
+				printf("   ");
+			}
+		}
+		printf("%s ", out);
+	}
+	printf("\n");
+}
+
 
 unsigned short in_cksum(unsigned short *addr, size_t len)
 {
