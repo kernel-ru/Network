@@ -148,6 +148,7 @@ int routines(struct stuff *conn)
 			goto cont;
 		}
 		iphdrlen = ((struct iphdr *)recv_frame)->ihl * sizeof(int);
+
 		/* check chksum in ip header */
 		cksum = ((struct iphdr *)recv_frame)->check;
 		((struct iphdr *)recv_frame)->check = 0;
@@ -163,9 +164,53 @@ int routines(struct stuff *conn)
 #endif
 			goto cont;
 		}
+
 		/* compute len of icmp header */
 		icmplen = ntohs(((struct iphdr *)recv_frame)->tot_len) -
 			iphdrlen;
+
+		/* check chksum of icmp header */
+		cksum = ((struct icmphdr *)(recv_frame + iphdrlen))->
+			checksum;
+		((struct icmphdr *)(recv_frame + iphdrlen))->checksum = 0;
+		if (cksum == in_cksum((unsigned short *)
+					(recv_frame + iphdrlen), icmplen)) {
+#if DEBUG > 0
+			printf("icmp cksum is equal %d\n", cksum);
+#else
+			;
+#endif
+		} else {
+#if DEBUG > 0
+			printf("!!!!!icmp checksum is not walid %hu\n", cksum);
+#endif
+			goto cont;
+		}
+
+		/* check type and code */
+		if (((struct icmphdr *)(recv_frame + iphdrlen))->type ==
+				ICMP_ECHOREPLY && ((struct icmphdr *)
+					(recv_frame + iphdrlen))->code
+				== ICMP_ECHOREPLY ) {
+#if DEBUG > 0
+			printf("icmp type and code is ICMP_ECHOREPLY\n");
+#else
+			;
+#endif
+		} else {
+#if DEBUG > 0
+			printf("!!!!!icmp is not ICMP_ECHOREPLY\n");
+			printf("type: %hu, code: %hu\n",
+					((struct icmphdr *)(recv_frame +
+						iphdrlen))->type,
+					((struct icmphdr *)(recv_frame +
+						iphdrlen))->code);
+#else
+			;
+#endif
+		}
+
+		/* check id */
 		if (((struct icmphdr *)(recv_frame + iphdrlen))->un.echo.id ==
 				send_frame->_icmphdr.un.echo.id) {
 #if DEBUG > 0
@@ -181,6 +226,8 @@ int routines(struct stuff *conn)
 #endif
 			goto cont;
 		}
+
+		/* check sequence */
 		if (((struct icmphdr *)(recv_frame + iphdrlen))->
 				un.echo.sequence ==
 				send_frame->_icmphdr.un.echo.sequence) {
@@ -193,7 +240,7 @@ int routines(struct stuff *conn)
 #endif
 		} else {
 #if DEBUG > 0
-			printf("!!!!sequence is not equal l %hu, r %hu\n",
+			printf("!!!!!sequence is not equal l %hu, r %hu\n",
 					ntohs(send_frame->
 						_icmphdr.un.echo.sequence),
 					htons(((struct icmphdr *)
@@ -202,30 +249,17 @@ int routines(struct stuff *conn)
 #else
 			;
 #endif
-		//	goto cont;
 		}
 
-		/* check chksum of icmp header */
-		cksum = ((struct icmphdr *)(recv_frame + iphdrlen))->
-			checksum;
-		((struct icmphdr *)(recv_frame + iphdrlen))->checksum = 0;
-		if (cksum == in_cksum((unsigned short *)
-					(recv_frame + iphdrlen), icmplen)) {
-			succ_cnt++;
 #if DEBUG > 0
-			printf("icmp cksum is equal %d\n", cksum);
-			printf("count of success ping: %d\n", succ_cnt);
+		succ_cnt++;
+		printf("count of success ping: %d\n", succ_cnt);
 #endif
-		} else {
-#if DEBUG > 0
-			printf("!!!!!icmp checksum is not walid %hu\n", cksum);
-#endif
-			goto cont;
-		}
 cont:	
 		seqtmp = ntohs(send_frame->_icmphdr.un.echo.sequence);
 		seqtmp++;
 		send_frame->_icmphdr.un.echo.sequence = htons(seqtmp);
+		/* print all frame if DEBUG > 1 */
 #if DEBUG > 0
 #if DEBUG == 2
 		pr_bytes(recv_frame, ntohs(((struct iphdr *)recv_frame)->
