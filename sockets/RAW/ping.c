@@ -19,6 +19,12 @@
 #include <netinet/ip.h>
 #include <string.h>
 
+#if DEBUG > 0
+#define pr_dbg(...) fprintf(stderr, __VA_ARGS__)
+#else
+#define pr_dbg(...) ;
+#endif
+
 struct stuff {
 	int recv_sock, send_sock;
 	struct sockaddr_in recv_sockaddr, send_sockaddr;
@@ -32,18 +38,19 @@ void pr_bytes(const char *str, int size);
 
 int main(int argc, char *argv[])
 {
+	pr_dbg("pr_dbg is works\n");
 	if (argc < 2) {
-		printf("need hostname\n");
+		fprintf(stderr, "need hostname\n");
 		exit(1);
 	}
 	if (ping(argv[1])) {
 		printf("host %s is alive\n", argv[1]);
+		return 0;
 	} else {
 		printf("host %s is not alive\n", argv[1]);
+		return 1;
 	}
-	return 0;
 }
-
 
 int ping(const char *name)
 {
@@ -62,7 +69,7 @@ int ping(const char *name)
 	conn->send_sockaddr.sin_family = AF_INET;
 	conn->send_sockaddr.sin_addr.s_addr =
 		*(in_addr_t *)conn->h_ent->h_addr_list[0];
-	/*printf("0x%X\n", send_sockaddr.sin_addr.s_addr);*/
+	/*pr_dbg("0x%X\n", send_sockaddr.sin_addr.s_addr);*/
 	if ( (conn->recv_sock = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP)) ==
 			-1) {
 		perror("socket: ");
@@ -71,7 +78,7 @@ int ping(const char *name)
 	conn->recv_sockaddr.sin_family = AF_INET;
 	conn->recv_sockaddr.sin_addr.s_addr = *(long *)conn->
 		h_ent->h_addr_list[0];
-	/*printf("0x%X\n", recv_sockaddr.sin_addr.s_addr);*/
+	/*pr_dbg("0x%X\n", recv_sockaddr.sin_addr.s_addr);*/
 	if (routines(conn) >= 3) {
 		return 1;
 	} else {
@@ -132,19 +139,12 @@ int routines(struct stuff *conn)
 			perror("!!!!!recvfrom: ");
 			goto cont;
 		}
-		/*sleep(1);*/
 		/* comparison src and dest addresses */
 		if ( *(unsigned int *)conn->h_ent->h_addr_list[0] ==
 				((struct iphdr *)recv_frame)->saddr) {
-#if DEBUG > 0
-			printf("package with a valid addresses\n");
-#else
-			;
-#endif
+			pr_dbg("package with a valid addresses\n");
 		} else {
-#if DEBUG > 0
-			printf("!!!!!src and dest addresses is not walid\n");
-#endif
+			pr_dbg("!!!!!src and dest addresses is not walid\n");
 			goto cont;
 		}
 		iphdrlen = ((struct iphdr *)recv_frame)->ihl * sizeof(int);
@@ -153,15 +153,9 @@ int routines(struct stuff *conn)
 		cksum = ((struct iphdr *)recv_frame)->check;
 		((struct iphdr *)recv_frame)->check = 0;
 		if (cksum == in_cksum((unsigned short *)recv_frame, iphdrlen)){
-#if DEBUG > 0
-			printf("ip cksum is equal %hu\n", cksum);
-#else
-			;
-#endif
+			pr_dbg("ip cksum is equal %hu\n", cksum);
 		} else {
-#if DEBUG > 0
-			printf("!!!!!ip cksum is not equal %hu\n", cksum);
-#endif
+			pr_dbg("!!!!!ip cksum is not equal %hu\n", cksum);
 			goto cont;
 		}
 
@@ -175,15 +169,9 @@ int routines(struct stuff *conn)
 		((struct icmphdr *)(recv_frame + iphdrlen))->checksum = 0;
 		if (cksum == in_cksum((unsigned short *)
 					(recv_frame + iphdrlen), icmplen)) {
-#if DEBUG > 0
-			printf("icmp cksum is equal %d\n", cksum);
-#else
-			;
-#endif
+			pr_dbg("icmp cksum is equal %d\n", cksum);
 		} else {
-#if DEBUG > 0
-			printf("!!!!!icmp checksum is not walid %hu\n", cksum);
-#endif
+			pr_dbg("!!!!!icmp checksum is not walid %hu\n", cksum);
 			goto cont;
 		}
 
@@ -192,38 +180,24 @@ int routines(struct stuff *conn)
 				ICMP_ECHOREPLY && ((struct icmphdr *)
 					(recv_frame + iphdrlen))->code
 				== ICMP_ECHOREPLY ) {
-#if DEBUG > 0
-			printf("icmp type and code is ICMP_ECHOREPLY\n");
-#else
-			;
-#endif
+			pr_dbg("icmp type and code is ICMP_ECHOREPLY\n");
 		} else {
-#if DEBUG > 0
-			printf("!!!!!icmp is not ICMP_ECHOREPLY\n");
-			printf("type: %hu, code: %hu\n",
+			pr_dbg("!!!!!icmp is not ICMP_ECHOREPLY\n");
+			pr_dbg("!!!!!type: %hu, code: %hu\n",
 					((struct icmphdr *)(recv_frame +
 						iphdrlen))->type,
 					((struct icmphdr *)(recv_frame +
 						iphdrlen))->code);
-#else
-			;
-#endif
 		}
 
 		/* check id */
 		if (((struct icmphdr *)(recv_frame + iphdrlen))->un.echo.id ==
 				send_frame->_icmphdr.un.echo.id) {
-#if DEBUG > 0
-			printf("recv and send id is equal %hu\n",
+			pr_dbg("recv and send id is equal %hu\n",
 					ntohs(send_frame->_icmphdr.un.echo.id));
-#else
-			;
-#endif
 		} else {
-#if DEBUG > 0
-			printf("!!!!!id is not equal %hu\n",
+			pr_dbg("!!!!!id is not equal %hu\n",
 					ntohs(send_frame->_icmphdr.un.echo.id));
-#endif
 			goto cont;
 		}
 
@@ -231,42 +205,31 @@ int routines(struct stuff *conn)
 		if (((struct icmphdr *)(recv_frame + iphdrlen))->
 				un.echo.sequence ==
 				send_frame->_icmphdr.un.echo.sequence) {
-#if DEBUG > 0
-			printf("recv end send seq is equal %hu\n",
+			pr_dbg("recv end send seq is equal %hu\n",
 					ntohs(send_frame->
 						_icmphdr.un.echo.sequence));
-#else
-			;
-#endif
 		} else {
-#if DEBUG > 0
-			printf("!!!!!sequence is not equal l %hu, r %hu\n",
+			pr_dbg("!!!!!sequence is not equal l %hu, r %hu\n",
 					ntohs(send_frame->
 						_icmphdr.un.echo.sequence),
 					htons(((struct icmphdr *)
 							(recv_frame + iphdrlen))
 						->un.echo.sequence));
-#else
-			;
-#endif
 		}
 
-#if DEBUG > 0
+		/* increment the counter of successful pings */
 		succ_cnt++;
-		printf("count of success ping: %d\n", succ_cnt);
-#endif
+		pr_dbg("count of success ping: %d\n", succ_cnt);
 cont:	
 		seqtmp = ntohs(send_frame->_icmphdr.un.echo.sequence);
 		seqtmp++;
 		send_frame->_icmphdr.un.echo.sequence = htons(seqtmp);
 		/* print all frame if DEBUG > 1 */
-#if DEBUG > 0
 #if DEBUG == 2
 		pr_bytes(recv_frame, ntohs(((struct iphdr *)recv_frame)->
 					tot_len));
 #endif
-		printf("next sequence is %hu\n=============\n", seqtmp);
-#endif
+		pr_dbg("next sequence is %hu\n=============\n", seqtmp);
 	}
 	return succ_cnt;
 }
@@ -287,16 +250,15 @@ void pr_bytes(const char *str, int size)
 		}
 		if (i % 8 == 0 && i != 0) {
 			if (i % 16 == 0) {
-				printf("\n");
+				fprintf(stderr, "\n");
 			} else {
-				printf("   ");
+				fprintf(stderr, "   ");
 			}
 		}
-		printf("%s ", out);
+		fprintf(stderr, "%s ", out);
 	}
-	printf("\n");
+	fprintf(stderr, "\n");
 }
-
 
 unsigned short in_cksum(unsigned short *addr, size_t len)
 {
