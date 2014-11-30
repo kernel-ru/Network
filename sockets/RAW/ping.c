@@ -18,6 +18,9 @@
 #include <netinet/ip_icmp.h>
 #include <netinet/ip.h>
 #include <string.h>
+#include <pthread.h>
+#include <setjmp.h>
+#include <signal.h>
 
 #if DEBUG > 0
 #define pr_dbg(...) fprintf(stderr, __VA_ARGS__)
@@ -25,16 +28,28 @@
 #define pr_dbg(...) ;
 #endif
 
+#define DELAY 8050
+#define BUF_SIZ 1000
+#define LOAD_SIZ 5
+
 struct stuff {
 	int recv_sock, send_sock;
 	struct sockaddr_in recv_sockaddr, send_sockaddr;
 	struct hostent *h_ent;
 };
 
+struct s_frame {
+	struct icmphdr _icmphdr;
+	char payload[LOAD_SIZ];
+};
+
 int ping(const char *name);
 int routines(struct stuff *conn);
 unsigned short in_cksum(unsigned short *addr, size_t len);
 void pr_bytes(const char *str, int size);
+void sighndlr(int sig);
+
+jmp_buf env;
 
 int main(int argc, char *argv[])
 {
@@ -54,51 +69,90 @@ int main(int argc, char *argv[])
 
 int ping(const char *name)
 {
+	void *succ_cnt;
 	struct stuff *conn;
+	pthread_t routin_th;
+	int th_result;
 	conn = malloc(sizeof(struct stuff));
+	if (!conn) {
+		perror("malloc: ");
+		return 0;
+	}
 	conn->h_ent = gethostbyname(name);
 	if (!conn->h_ent) {
 		perror("gethostbyname: ");
-		return 0;
+		goto bad;
 	}
 	if ( (conn->send_sock = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP)) ==
 			-1) {
 		perror("socket: ");
-		return 0;
+		goto bad;
 	}
 	conn->send_sockaddr.sin_family = AF_INET;
 	conn->send_sockaddr.sin_addr.s_addr =
 		*(in_addr_t *)conn->h_ent->h_addr_list[0];
-	/*pr_dbg("0x%X\n", send_sockaddr.sin_addr.s_addr);*/
 	if ( (conn->recv_sock = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP)) ==
 			-1) {
 		perror("socket: ");
-		return 0;
+		goto bad;
 	}
 	conn->recv_sockaddr.sin_family = AF_INET;
 	conn->recv_sockaddr.sin_addr.s_addr = *(long *)conn->
 		h_ent->h_addr_list[0];
-	/*pr_dbg("0x%X\n", recv_sockaddr.sin_addr.s_addr);*/
-	if (routines(conn) >= 3) {
-		return 1;
-	} else {
-		return 0;
+	/* set sighandler */
+	struct sigaction act;
+	memset(&act, 0, sizeof(act));
+	act.sa_handler = sighndlr;
+	sigaction(SIGUSR1, &act, 0);
+	/* start pthread */
+	th_result = pthread_create(&routin_th, NULL, (void *)&routines,
+			(void *)conn);
+	if (th_result != 0) {
+		perror("!!!!!ptread: ");
+		goto bad;
 	}
+	usleep(DELAY);
+	/* send SIGUSR1 to thread */
+	pthread_kill(routin_th, SIGUSR1);
+	/* get the number of sucessful ping */
+	if (pthread_join(routin_th, &succ_cnt) == 0) {
+		if (((long)succ_cnt) >= 3) {
+			pr_dbg("total ping recieved: %lu\n", (long)succ_cnt);
+			free(conn);
+			return 1;
+		} else {
+			pr_dbg("total ping recieved: %lu\n", (long)succ_cnt);
+			goto bad;
+		}
+	} else {
+		perror("pthread_joint: ");
+		goto bad;
+	}
+bad:
+	free(conn);
+	return 0;
 }
 
-#define BUF_SIZ 100
-#define LOAD_SIZ 5
-struct s_frame {
-	struct icmphdr _icmphdr;
-	char payload[LOAD_SIZ];
-};
+void sighndlr(int sig)
+{
+	pr_dbg("it is sig handler, signal was received %d\n", sig);
+	longjmp(env, 1);
+}
 
 int routines(struct stuff *conn)
 {
-	struct s_frame *send_frame;
-	void *recv_frame;
+	if (setjmp(env) == 0) {
+		pr_dbg("setjmp\n");
+	} else {
+		pr_dbg("return from longjmp\n");
+		goto end;
+	}
+	sigset_t set, orig;
+	struct s_frame *send_frame = NULL;
+	void *recv_frame = NULL;
+	void *succ_cnt = 0;
+	int i;
 	unsigned short cksum, seqtmp;
-	int i, succ_cnt = 0;
 	time_t t;
 	int iphdrlen, icmplen;
 	socklen_t len = sizeof(struct sockaddr_in);
@@ -106,21 +160,18 @@ int routines(struct stuff *conn)
 	send_frame = malloc(sizeof(struct s_frame));
 	if (!send_frame) {
 		perror("malloc: ");
-		return 0;
+		goto end;
 	}
 	recv_frame = malloc(BUF_SIZ);
 	if (!recv_frame) {
 		perror("malloc: ");
-		return 0;
+		goto end;
 	}
 	send_frame->_icmphdr.type = ICMP_ECHO;
 	send_frame->_icmphdr.code = ICMP_ECHOREPLY;
-	/*send_frame->_icmphdr.un.echo.id = rand() % (USHRT_MAX + 1);*/
 	send_frame->_icmphdr.un.echo.id = rand() % (USHRT_MAX + 1);
 	send_frame->_icmphdr.un.echo.sequence = htons(1);
-	/*send_frame->payload = rand() % (UINT_MAX + 1);*/
 	for (i = 0; i < 4; i++) {
-		memset(recv_frame, 0, 1400);
 		send_frame->_icmphdr.checksum = 0;
 		send_frame->_icmphdr.checksum =
 			in_cksum((unsigned short *)send_frame,
@@ -132,6 +183,7 @@ int routines(struct stuff *conn)
 			perror("!!!!!sendto: ");
 			goto cont;
 		}
+		memset(recv_frame, 0, BUF_SIZ);
 		if (recvfrom(conn->recv_sock, recv_frame, BUF_SIZ,
 					MSG_WAITALL,
 					(struct sockaddr *)&conn->recv_sockaddr,
@@ -139,15 +191,13 @@ int routines(struct stuff *conn)
 			perror("!!!!!recvfrom: ");
 			goto cont;
 		}
-		/* comparison src and dest addresses */
-		if ( *(unsigned int *)conn->h_ent->h_addr_list[0] ==
-				((struct iphdr *)recv_frame)->saddr) {
-			pr_dbg("package with a valid addresses\n");
-		} else {
-			pr_dbg("!!!!!src and dest addresses is not walid\n");
-			goto cont;
-		}
+
+		/* compute len of ip header */
 		iphdrlen = ((struct iphdr *)recv_frame)->ihl * sizeof(int);
+
+		/* compute len of icmp header */
+		icmplen = ntohs(((struct iphdr *)recv_frame)->tot_len) -
+			iphdrlen;
 
 		/* check chksum in ip header */
 		cksum = ((struct iphdr *)recv_frame)->check;
@@ -158,10 +208,6 @@ int routines(struct stuff *conn)
 			pr_dbg("!!!!!ip cksum is not equal %hu\n", cksum);
 			goto cont;
 		}
-
-		/* compute len of icmp header */
-		icmplen = ntohs(((struct iphdr *)recv_frame)->tot_len) -
-			iphdrlen;
 
 		/* check chksum of icmp header */
 		cksum = ((struct icmphdr *)(recv_frame + iphdrlen))->
@@ -188,6 +234,15 @@ int routines(struct stuff *conn)
 						iphdrlen))->type,
 					((struct icmphdr *)(recv_frame +
 						iphdrlen))->code);
+		}
+
+		/* comparison src and dest addresses */
+		if ( *(unsigned int *)conn->h_ent->h_addr_list[0] ==
+				((struct iphdr *)recv_frame)->saddr) {
+			pr_dbg("package with a valid addresses\n");
+		} else {
+			pr_dbg("!!!!!src and dest addresses is not walid\n");
+			goto cont;
 		}
 
 		/* check id */
@@ -219,7 +274,7 @@ int routines(struct stuff *conn)
 
 		/* increment the counter of successful pings */
 		succ_cnt++;
-		pr_dbg("count of success ping: %d\n", succ_cnt);
+		pr_dbg("count of success ping: %lu\n", (long)succ_cnt);
 cont:	
 		seqtmp = ntohs(send_frame->_icmphdr.un.echo.sequence);
 		seqtmp++;
@@ -231,7 +286,16 @@ cont:
 #endif
 		pr_dbg("next sequence is %hu\n=============\n", seqtmp);
 	}
-	return succ_cnt;
+end:
+	/* set block for SIGUSR1 */
+	sigemptyset(&set);
+	sigaddset(&set, SIGUSR1);
+	sigemptyset(&orig);
+	pthread_sigmask(SIG_BLOCK, &set, &orig);
+	free(send_frame);send_frame = NULL;free(recv_frame);recv_frame = NULL;
+	/* unset block for SIGUSR1 */
+	pthread_sigmask(SIG_SETMASK, &orig, 0);
+	pthread_exit(succ_cnt);
 }
 
 void pr_bytes(const char *str, int size)
