@@ -1,9 +1,9 @@
 /*
  * ping.c
  * written by Ivan Ryabtsov ivriabtsov at gmail dot com
- * compile with: gcc -Wall -Wextra -g -O2 -DDEBUG=2 ping.c for maximum debug
- * gcc -Wall -Wextra -g -O2 -DDEBUG=1 ping.c for reduce debug
- * gcc -Wall -Wextra -g -O2  ping.c without debug
+ * compile with: gcc -Wall -Wextra -pthread -g -O2 -DDEBUG=2 maximum debug
+ * gcc -Wall -Wextra -pthread -g -O2 -DDEBUG=1 reduce debug
+ * gcc -Wall -Wextra -pthread -g -O2 -DDEBUG=0 without debug
  */
 #include <unistd.h>
 #include <stdio.h>
