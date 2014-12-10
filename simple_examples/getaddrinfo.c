@@ -12,9 +12,9 @@ int main(int argc, char **argv)
 	struct addrinfo hints, *result, *tmp;
 	struct sockaddr_in *sock_addr;
 	int res;
-	hints.ai_flags = AI_PASSIVE;
+	hints.ai_flags = 0;
 	hints.ai_family = AF_INET;
-	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_socktype = SOCK_RAW;
 	hints.ai_protocol = 0;
 	hints.ai_addrlen = 0;
 	hints.ai_canonname = NULL;
