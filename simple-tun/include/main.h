@@ -4,9 +4,9 @@
 #include <net/if.h>
 #include <netdb.h>
 
-#define PROGRAM_NAME "icmp-tunnel"
+#define PROGRAM_NAME "simple-tun"
 #define DEFAULT_PORT_NUM 12345
-#define DEFAULT_TUN_NAME "icmp-tun"
+#define DEFAULT_TUN_NAME "tun"
 #define MAX_PRIVELEGED_PORT 1024
 
 typedef enum {

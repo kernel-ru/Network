@@ -1,4 +1,4 @@
-export PROG	:= tunnel
+export PROG	:= simple-tun
 SRC_DIR		:= ./src
 export CC	:= gcc
 export CFLAGS	:= -Werror -Wall -Wextra -DDEBUG -g
