@@ -23,6 +23,7 @@ int main(int argc, char* argv[])
 	if (argc != 2)
 		usage(argv);
 
+	// 48 bytes of NTP packet (rfc5905)
 	typedef struct 
 	{
 		unsigned leap	: 2;
@@ -49,9 +50,11 @@ int main(int argc, char* argv[])
 		uint32_t tsm_Tm_s;
 		uint32_t tsm_xTm_f;
 	} ntp_packet;
-	
+
 	ntp_packet packet = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-	*((char *) &packet + 0) = 0x1b;
+
+	// Set the first bits to 00,011,011: leap = 0, ver = 3, mode = 3
+	*((char *) &packet + 0) = 0x1b; // Represents 00011011 in base 2
 
 	struct sockaddr_in serv_addr;
 	struct hostent *server;
@@ -67,10 +70,10 @@ int main(int argc, char* argv[])
 	bcopy((void *)server->h_addr, (void *)&serv_addr.sin_addr, server->h_length);
 	
 	serv_addr.sin_port = htons(123);
-  serv_addr.sin_family = AF_INET;
+	serv_addr.sin_family = AF_INET;
 	
 	if (sendto(sockfd, &packet, sizeof(packet), 0,
-						(struct sockaddr *) &serv_addr, sizeof(serv_addr)) == -1)
+            (struct sockaddr *) &serv_addr, sizeof(serv_addr)) == -1)
 		oops("sendto failed", 3);
 
 	socklen_t saddrlen = sizeof(serv_addr);	
